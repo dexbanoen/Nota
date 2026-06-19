@@ -1,0 +1,3 @@
+# This directory stores the SQLite database (nota.db) and ChromaDB data.
+# It is created automatically by the backend on first startup.
+# Do not commit its contents to version control.

@@ -1,0 +1,2 @@
+# Raw PDF files are stored here under course-specific subdirectories.
+# This directory is ignored by git; do not commit PDF files.
