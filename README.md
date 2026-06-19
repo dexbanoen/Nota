@@ -22,6 +22,8 @@ Designed to run locally, Nota ensures absolute privacy. Your PDFs never leave yo
 
 ## Architecture Summary
 
+For a detailed explanation of the design patterns, sequence diagrams, and data flows, please see the [Architecture Documentation](ARCHITECTURE.md).
+
 Nota uses a **Layered Modular Monolith** architecture in the backend:
 
 1. **API Layer**: Thin FastAPI routes handling HTTP requests.
