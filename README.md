@@ -22,7 +22,7 @@ Designed to run locally, Nota ensures absolute privacy. Your PDFs never leave yo
 
 ## Architecture Summary
 
-For a detailed explanation of the design patterns, sequence diagrams, and data flows, please see the [Architecture Documentation](ARCHITECTURE.md).
+## Architecture Summary
 
 Nota uses a **Layered Modular Monolith** architecture in the backend:
 
@@ -31,6 +31,73 @@ Nota uses a **Layered Modular Monolith** architecture in the backend:
 3. **Repository Layer**: Abstracts database operations (`CourseRepository`, `DocumentRepository`).
 4. **Adapter Layer**: Wraps external tools and libraries (`PDFParserAdapter`, `OllamaEmbeddingAdapter`, `OllamaLLMAdapter`).
 5. **Data Layer**: SQLite for relational metadata (courses, documents) and ChromaDB for vector embeddings and text chunks.
+
+### High-Level Map
+```mermaid
+graph TD
+    Client[Next.js Frontend\nReact, Tailwind] -->|HTTP REST API| API[FastAPI Backend]
+    
+    subgraph Backend Monolith
+        API --> Services[Service Layer]
+        
+        Services --> Repos[Repository Layer]
+        Services --> Adapters[Adapter Layer]
+        Services --> VectorDB[ChromaDB Vector Store]
+        
+        Repos --> SQLite[(SQLite DB\nRelational Metadata)]
+        Adapters --> Ollama[Local Ollama\nLLM & Embeddings]
+        Adapters --> PyMuPDF[PyMuPDF\nText Extraction]
+    end
+```
+
+### The PDF Ingestion Pipeline
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as Documents API
+    participant Ingestion as IngestionService
+    participant PDF as PDFParserAdapter
+    participant Ollama as OllamaEmbeddingAdapter
+    participant Chroma as ChromaStore
+    participant DB as SQLite
+
+    User->>API: Upload PDF
+    API->>Ingestion: ingest(file_bytes)
+    Ingestion->>DB: Save Document status = PROCESSING
+    Ingestion->>PDF: Extract text page-by-page
+    PDF-->>Ingestion: Return ParsedPages
+    Ingestion->>Ingestion: Chunk text (PageChunkingStrategy)
+    Ingestion->>Ollama: embed_texts(chunks)
+    Ollama-->>Ingestion: Return Vectors
+    Ingestion->>Chroma: Store Chunks + Vectors
+    Ingestion->>DB: Update Document status = PROCESSED
+    Ingestion-->>API: Success
+    API-->>User: Return Document Details
+```
+
+### The RAG Retrieval Pipeline
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as Chat API
+    participant RAG as RAGService
+    participant OllamaEmb as OllamaEmbeddingAdapter
+    participant Chroma as ChromaStore
+    participant OllamaLLM as OllamaLLMAdapter
+
+    User->>API: Ask Question
+    API->>RAG: ask(course_id, question)
+    RAG->>OllamaEmb: embed(question)
+    OllamaEmb-->>RAG: Return Question Vector
+    RAG->>Chroma: search(vector, course_id, limit=3)
+    Chroma-->>RAG: Return top 3 relevant text chunks
+    RAG->>OllamaLLM: generate(context=chunks, question)
+    OllamaLLM-->>RAG: Return generated answer
+    RAG-->>API: Return Answer + Sources (Filename, Page)
+    API-->>User: Display Chat Response
+```
+
+For an even more detailed explanation of the design patterns, please see the [Architecture Documentation](ARCHITECTURE.md).
 
 ## Prerequisites
 
