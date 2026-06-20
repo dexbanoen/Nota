@@ -31,7 +31,7 @@ class PageChunkingStrategy(ChunkingStrategy):
         if len(text) <= self.max_chars:
             return [Chunk(page_number=page_number, chunk_index=0, text=text)]
 
-        # Sliding window split with overlap
+        # Sliding window split with overlap, snapping to sentence boundaries
         chunks: list[Chunk] = []
         start = 0
         chunk_index = 0
@@ -39,6 +39,11 @@ class PageChunkingStrategy(ChunkingStrategy):
 
         while start < len(text):
             end = min(start + self.max_chars, len(text))
+
+            # Snap to sentence boundary (don't cut mid-sentence)
+            if end < len(text):
+                end = self._snap_to_sentence(text, start, end)
+
             chunk_text = text[start:end].strip()
             if chunk_text:
                 chunks.append(
@@ -49,6 +54,26 @@ class PageChunkingStrategy(ChunkingStrategy):
                     )
                 )
                 chunk_index += 1
-            start += step
+            start = max(start + step, end - self.overlap_chars)
 
         return chunks
+
+    @staticmethod
+    def _snap_to_sentence(text: str, start: int, end: int) -> int:
+        """
+        Move `end` backward to the nearest sentence boundary so chunks
+        don't split mid-sentence. Falls back to the original end if no
+        good boundary is found in the back half of the window.
+        """
+        # Search region: only look in the back 40% of the chunk to avoid
+        # trimming too aggressively
+        search_start = start + int((end - start) * 0.6)
+        region = text[search_start:end]
+
+        # Try sentence-ending punctuation followed by whitespace or newline
+        for sep in ['. ', '.\n', '? ', '?\n', '! ', '!\n', '\n\n']:
+            pos = region.rfind(sep)
+            if pos != -1:
+                return search_start + pos + len(sep)
+
+        return end

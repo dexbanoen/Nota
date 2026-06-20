@@ -29,6 +29,7 @@ export interface Source {
   filename: string;
   page_number: number;
   chunk_text: string;
+  relevance_score: number;
 }
 
 export interface ChatResponse {

@@ -56,19 +56,38 @@ export default function SourceList({ sources }: Props) {
               >
                 📄 {src.filename}
               </span>
-              <span
-                style={{
-                  flexShrink: 0,
-                  background: "rgba(99,102,241,0.15)",
-                  color: "var(--accent-hover)",
-                  borderRadius: 4,
-                  padding: "2px 8px",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                }}
-              >
-                p. {src.page_number}
-              </span>
+              <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                <span
+                  style={{
+                    background:
+                      src.relevance_score >= 0.5
+                        ? "rgba(34,197,94,0.15)"
+                        : "rgba(245,158,11,0.15)",
+                    color:
+                      src.relevance_score >= 0.5
+                        ? "var(--success)"
+                        : "var(--warning)",
+                    borderRadius: 4,
+                    padding: "2px 8px",
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  {Math.round(src.relevance_score * 100)}% match
+                </span>
+                <span
+                  style={{
+                    background: "rgba(99,102,241,0.15)",
+                    color: "var(--accent-hover)",
+                    borderRadius: 4,
+                    padding: "2px 8px",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  p. {src.page_number}
+                </span>
+              </div>
             </div>
             <p
               style={{

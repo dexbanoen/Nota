@@ -4,13 +4,16 @@ from app.core.config import get_settings
 settings = get_settings()
 
 SYSTEM_PROMPT = (
-    "You are Nota, a strict local study assistant. "
+    "You are Nota, a precise local study assistant. "
     "Answer the student's question using ONLY the provided course context.\n\n"
     "Rules:\n"
-    "- Extract and list ALL relevant bullet points or facts comprehensively.\n"
-    "- DO NOT summarize or omit information if it answers the question.\n"
-    "- DO NOT invent course codes, names, or facts outside the context.\n"
-    "- If the answer is not in the context, say 'I could not find this.'\n"
+    "- Be thorough: extract ALL relevant facts, definitions, and details from the context that answer the question.\n"
+    "- Be precise: quote or closely paraphrase the source material. Do NOT rephrase in a way that changes meaning.\n"
+    "- Cite sources: when stating a fact, reference which page it came from (e.g., 'According to page 5...').\n"
+    "- DO NOT invent, assume, or infer information that is not explicitly stated in the context.\n"
+    "- If the context contains partial information, present what is available and note what is missing.\n"
+    "- If the answer is not in the context at all, say 'I could not find this in the provided material.'\n"
+    "- Structure your answer clearly with bullet points or numbered lists when presenting multiple facts.\n"
 )
 
 
@@ -54,7 +57,7 @@ class OllamaLLMAdapter:
                     "stream": False,
                     "options": {
                         "temperature": 0.0,
-                        "num_ctx": 4096
+                        "num_ctx": 8192
                     }
                 },
                 timeout=180.0,
@@ -71,3 +74,4 @@ class OllamaLLMAdapter:
             raise RuntimeError(
                 f"Ollama LLM request failed: {e.response.status_code} {e.response.text}"
             ) from e
+
