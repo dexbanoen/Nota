@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { askQuestion, type ChatResponse } from "@/lib/api";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { askQuestionStream, type Source } from "@/lib/api";
 import SourceList from "./SourceList";
 
 interface Props {
@@ -10,7 +10,8 @@ interface Props {
 interface Message {
   role: "user" | "assistant";
   content: string;
-  sources?: ChatResponse["sources"];
+  sources?: Source[];
+  isStreaming?: boolean;
 }
 
 export default function ChatBox({ courseId }: Props) {
@@ -18,38 +19,117 @@ export default function ChatBox({ courseId }: Props) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const question = input.trim();
-    if (!question || loading) return;
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
-    setInput("");
-    setLoading(true);
-    setError(null);
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
-    try {
-      const res = await askQuestion(courseId, question);
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const question = input.trim();
+      if (!question || loading) return;
+
+      // Add user message
+      setMessages((prev) => [...prev, { role: "user", content: question }]);
+      setInput("");
+      setLoading(true);
+      setError(null);
+
+      // Add a placeholder assistant message that will be streamed into
+      const assistantIdx = messages.length + 1; // index after adding user msg
+
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: res.answer, sources: res.sources },
+        { role: "assistant", content: "", sources: [], isStreaming: true },
       ]);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Request failed.");
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "⚠ An error occurred. Please check that Ollama is running and try again.",
-          sources: [],
+
+      abortRef.current = askQuestionStream(courseId, question, {
+        onSources(sources) {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const msg = updated[assistantIdx];
+            if (msg) {
+              updated[assistantIdx] = { ...msg, sources };
+            }
+            return updated;
+          });
         },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
+
+        onToken(token) {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const msg = updated[assistantIdx];
+            if (msg) {
+              updated[assistantIdx] = {
+                ...msg,
+                content: msg.content + token,
+              };
+            }
+            return updated;
+          });
+        },
+
+        onDone() {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const msg = updated[assistantIdx];
+            if (msg) {
+              updated[assistantIdx] = { ...msg, isStreaming: false };
+            }
+            return updated;
+          });
+          setLoading(false);
+          abortRef.current = null;
+        },
+
+        onError(errorMsg) {
+          setError(errorMsg);
+          setMessages((prev) => {
+            const updated = [...prev];
+            const msg = updated[assistantIdx];
+            if (msg) {
+              updated[assistantIdx] = {
+                ...msg,
+                content:
+                  msg.content ||
+                  "⚠ An error occurred. Please check that Ollama is running and try again.",
+                isStreaming: false,
+              };
+            }
+            return updated;
+          });
+          setLoading(false);
+          abortRef.current = null;
+        },
+      });
+    },
+    [courseId, input, loading, messages.length]
+  );
+
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort();
+    setMessages((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (last?.isStreaming) {
+        updated[updated.length - 1] = { ...last, isStreaming: false };
+      }
+      return updated;
+    });
+    setLoading(false);
+    abortRef.current = null;
+  }, []);
 
   return (
     <div
@@ -110,7 +190,13 @@ export default function ChatBox({ courseId }: Props) {
                 </div>
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
                 <div
                   id={`msg-assistant-${i}`}
                   style={{
@@ -123,9 +209,24 @@ export default function ChatBox({ courseId }: Props) {
                     lineHeight: 1.6,
                     color: "var(--text)",
                     whiteSpace: "pre-wrap",
+                    minHeight: msg.isStreaming && !msg.content ? 40 : undefined,
                   }}
                 >
                   {msg.content}
+                  {msg.isStreaming && (
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 6,
+                        height: "1em",
+                        background: "var(--accent)",
+                        borderRadius: 2,
+                        marginLeft: 2,
+                        verticalAlign: "text-bottom",
+                        animation: "blink 1s step-end infinite",
+                      }}
+                    />
+                  )}
                 </div>
                 {msg.sources && msg.sources.length > 0 && (
                   <div style={{ maxWidth: "85%" }}>
@@ -137,24 +238,7 @@ export default function ChatBox({ courseId }: Props) {
           </div>
         ))}
 
-        {loading && (
-          <div
-            id="chat-loading"
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: "12px 12px 12px 2px",
-              padding: "16px",
-              width: "fit-content",
-              fontSize: "0.875rem",
-              color: "var(--text-muted)",
-            }}
-          >
-            <span style={{ animation: "pulse 1.5s ease-in-out infinite" }}>
-              Thinking…
-            </span>
-          </div>
-        )}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Error bar */}
@@ -194,25 +278,57 @@ export default function ChatBox({ courseId }: Props) {
             fontSize: "0.9rem",
           }}
         />
-        <button
-          id="send-question-btn"
-          type="submit"
-          disabled={loading || !input.trim()}
-          style={{
-            alignSelf: "flex-end",
-            background: loading || !input.trim() ? "var(--surface-2)" : "var(--accent)",
-            color: loading || !input.trim() ? "var(--text-muted)" : "#fff",
-            border: "none",
-            borderRadius: 8,
-            padding: "10px 20px",
-            fontSize: "0.875rem",
-            fontWeight: 600,
-            transition: "background 0.2s",
-          }}
-        >
-          Send
-        </button>
+        {loading ? (
+          <button
+            id="cancel-btn"
+            type="button"
+            onClick={handleCancel}
+            style={{
+              alignSelf: "flex-end",
+              background: "var(--error)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "10px 20px",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            id="send-question-btn"
+            type="submit"
+            disabled={!input.trim()}
+            style={{
+              alignSelf: "flex-end",
+              background: !input.trim()
+                ? "var(--surface-2)"
+                : "var(--accent)",
+              color: !input.trim() ? "var(--text-muted)" : "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "10px 20px",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              transition: "background 0.2s",
+            }}
+          >
+            Send
+          </button>
+        )}
       </form>
+
+      {/* Blinking cursor animation */}
+      <style>{`
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 }

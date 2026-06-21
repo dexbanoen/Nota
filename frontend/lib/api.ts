@@ -105,7 +105,7 @@ export async function getDocuments(courseId: number): Promise<Document[]> {
 }
 
 // ─────────────────────────────────────────────
-// Chat endpoint
+// Chat endpoint (non-streaming, legacy)
 // ─────────────────────────────────────────────
 
 export async function askQuestion(
@@ -118,4 +118,137 @@ export async function askQuestion(
     body: JSON.stringify({ question }),
   });
   return handleResponse<ChatResponse>(res);
+}
+
+// ─────────────────────────────────────────────
+// Chat endpoint (streaming via SSE)
+// ─────────────────────────────────────────────
+
+export interface StreamCallbacks {
+  onSources: (sources: Source[]) => void;
+  onToken: (token: string) => void;
+  onDone: () => void;
+  onError: (error: string) => void;
+}
+
+/**
+ * Ask a question and receive a streaming answer via Server-Sent Events.
+ *
+ * The backend sends:
+ *   event: sources  → JSON array of Source objects
+ *   event: token    → a single text token (JSON-encoded string)
+ *   event: done     → stream complete
+ *   event: error    → error details
+ *
+ * Returns an AbortController so the caller can cancel the stream.
+ */
+export function askQuestionStream(
+  courseId: number,
+  question: string,
+  callbacks: StreamCallbacks
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/courses/${courseId}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const body = await res.json();
+          detail = body.detail || JSON.stringify(body);
+        } catch {
+          detail = await res.text();
+        }
+        callbacks.onError(detail);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        callbacks.onError("No response body");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE messages are separated by double newlines
+        const messages = buffer.split("\n\n");
+        // Keep the last incomplete chunk in the buffer
+        buffer = messages.pop() || "";
+
+        for (const message of messages) {
+          if (!message.trim()) continue;
+
+          // Parse SSE: "event: <type>\ndata: <payload>"
+          let eventType = "";
+          let dataStr = "";
+
+          for (const line of message.split("\n")) {
+            if (line.startsWith("event: ")) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith("data: ")) {
+              dataStr = line.slice(6);
+            }
+          }
+
+          if (!eventType) continue;
+
+          switch (eventType) {
+            case "sources":
+              try {
+                const sources: Source[] = JSON.parse(dataStr);
+                callbacks.onSources(sources);
+              } catch {
+                // ignore malformed sources
+              }
+              break;
+            case "token":
+              try {
+                const token: string = JSON.parse(dataStr);
+                callbacks.onToken(token);
+              } catch {
+                // Raw text fallback
+                callbacks.onToken(dataStr);
+              }
+              break;
+            case "done":
+              callbacks.onDone();
+              return;
+            case "error":
+              try {
+                const err = JSON.parse(dataStr);
+                callbacks.onError(err.detail || "Unknown error");
+              } catch {
+                callbacks.onError(dataStr || "Unknown error");
+              }
+              return;
+          }
+        }
+      }
+
+      // Stream ended without explicit 'done' event
+      callbacks.onDone();
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return; // User cancelled — not an error
+      }
+      callbacks.onError(err instanceof Error ? err.message : "Stream failed");
+    }
+  })();
+
+  return controller;
 }

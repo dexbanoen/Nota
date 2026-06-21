@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from dataclasses import dataclass
 from app.adapters.ollama_llm_adapter import OllamaLLMAdapter
 
@@ -20,6 +21,22 @@ class LLMService:
     def __init__(self) -> None:
         self._adapter = OllamaLLMAdapter()
 
+    @staticmethod
+    def _build_context(
+        chunk_texts: list[str],
+        chunks_with_sources: list[ChunkWithSource] | None = None,
+    ) -> str:
+        """Format chunk texts into a single context string for the LLM."""
+        if chunks_with_sources:
+            # Format with source attribution so the LLM can cite pages
+            parts = []
+            for i, chunk in enumerate(chunks_with_sources, 1):
+                parts.append(
+                    f"[Source {i}: {chunk.filename}, Page {chunk.page_number}]\n{chunk.text}"
+                )
+            return "\n\n---\n\n".join(parts)
+        return "\n\n---\n\n".join(chunk_texts)
+
     def generate_answer(self, chunk_texts: list[str], question: str, chunks_with_sources: list[ChunkWithSource] | None = None) -> str:
         """
         Generate a grounded answer from the retrieved chunk texts.
@@ -33,16 +50,20 @@ class LLMService:
         Returns:
             The model's answer as a plain string.
         """
-        if chunks_with_sources:
-            # Format with source attribution so the LLM can cite pages
-            parts = []
-            for i, chunk in enumerate(chunks_with_sources, 1):
-                parts.append(
-                    f"[Source {i}: {chunk.filename}, Page {chunk.page_number}]\n{chunk.text}"
-                )
-            context = "\n\n---\n\n".join(parts)
-        else:
-            context = "\n\n---\n\n".join(chunk_texts)
-
+        context = self._build_context(chunk_texts, chunks_with_sources)
         return self._adapter.generate(context=context, question=question)
 
+    def generate_answer_stream(
+        self,
+        chunk_texts: list[str],
+        question: str,
+        chunks_with_sources: list[ChunkWithSource] | None = None,
+    ) -> Generator[str, None, None]:
+        """
+        Stream a grounded answer token-by-token.
+
+        Yields:
+            Individual text tokens as they are generated.
+        """
+        context = self._build_context(chunk_texts, chunks_with_sources)
+        yield from self._adapter.generate_stream(context=context, question=question)
