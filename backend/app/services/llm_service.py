@@ -26,16 +26,13 @@ class LLMService:
         chunk_texts: list[str],
         chunks_with_sources: list[ChunkWithSource] | None = None,
     ) -> str:
-        """Format chunk texts into a single context string for the LLM."""
+        """Format chunk texts into a compact context string for the LLM."""
         if chunks_with_sources:
-            # Format with source attribution so the LLM can cite pages
             parts = []
-            for i, chunk in enumerate(chunks_with_sources, 1):
-                parts.append(
-                    f"[Source {i}: {chunk.filename}, Page {chunk.page_number}]\n{chunk.text}"
-                )
-            return "\n\n---\n\n".join(parts)
-        return "\n\n---\n\n".join(chunk_texts)
+            for chunk in chunks_with_sources:
+                parts.append(f"[p.{chunk.page_number}] {chunk.text}")
+            return "\n\n".join(parts)
+        return "\n\n".join(chunk_texts)
 
     def generate_answer(self, chunk_texts: list[str], question: str, chunks_with_sources: list[ChunkWithSource] | None = None) -> str:
         """
