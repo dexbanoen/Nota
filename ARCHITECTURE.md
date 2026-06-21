@@ -71,7 +71,7 @@ sequenceDiagram
 ```
 
 ### B. The RAG Retrieval Pipeline
-When a user asks a question, the `RAGService` orchestrates the retrieval-augmented generation.
+When a user asks a question, the `RAGService` orchestrates the retrieval-augmented generation. We use Server-Sent Events (SSE) to stream the response back to the client progressively.
 
 ```mermaid
 sequenceDiagram
@@ -83,15 +83,19 @@ sequenceDiagram
     participant OllamaLLM as OllamaLLMAdapter
 
     User->>API: Ask Question
-    API->>RAG: ask(course_id, question)
+    API->>RAG: ask_stream(course_id, question)
     RAG->>OllamaEmb: embed(question)
     OllamaEmb-->>RAG: Return Question Vector
-    RAG->>Chroma: search(vector, course_id, limit=3)
-    Chroma-->>RAG: Return top 3 relevant text chunks
-    RAG->>OllamaLLM: generate(context=chunks, question)
-    OllamaLLM-->>RAG: Return generated answer
-    RAG-->>API: Return Answer + Sources (Filename, Page)
-    API-->>User: Display Chat Response
+    RAG->>Chroma: search(vector, course_id, limit=5)
+    Chroma-->>RAG: Return top 5 relevant text chunks
+    RAG-->>API: Stream Sources (Filename, Page)
+    API-->>User: Display Sources Immediately
+    RAG->>OllamaLLM: generate_stream(context=chunks, question)
+    loop Token Generation
+        OllamaLLM-->>RAG: Yield token
+        RAG-->>API: Stream token (SSE)
+        API-->>User: Display token progressively
+    end
 ```
 
 ## 4. Component Interactions

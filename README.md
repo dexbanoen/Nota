@@ -86,15 +86,19 @@ sequenceDiagram
     participant OllamaLLM as OllamaLLMAdapter
 
     User->>API: Ask Question
-    API->>RAG: ask(course_id, question)
+    API->>RAG: ask_stream(course_id, question)
     RAG->>OllamaEmb: embed(question)
     OllamaEmb-->>RAG: Return Question Vector
-    RAG->>Chroma: search(vector, course_id, limit=3)
-    Chroma-->>RAG: Return top 3 relevant text chunks
-    RAG->>OllamaLLM: generate(context=chunks, question)
-    OllamaLLM-->>RAG: Return generated answer
-    RAG-->>API: Return Answer + Sources (Filename, Page)
-    API-->>User: Display Chat Response
+    RAG->>Chroma: search(vector, course_id, limit=5)
+    Chroma-->>RAG: Return top 5 relevant text chunks
+    RAG-->>API: Stream Sources (Filename, Page)
+    API-->>User: Display Sources Immediately
+    RAG->>OllamaLLM: generate_stream(context=chunks, question)
+    loop Token Generation
+        OllamaLLM-->>RAG: Yield token
+        RAG-->>API: Stream token (SSE)
+        API-->>User: Display token progressively
+    end
 ```
 
 For an even more detailed explanation of the design patterns, please see the [Architecture Documentation](ARCHITECTURE.md).
@@ -176,8 +180,8 @@ The frontend UI will be available at `http://localhost:3000`.
 5. **Study Chat**: Once processing is complete, click "Study Chat".
 6. **Ask a Question**: Ask something like "What is virtual memory?".
 7. **RAG Retrieval**: The system searches ChromaDB for the 5 most relevant chunks from your specific course.
-8. **LLM Generation**: The local `llama3.1:8b` model generates a concise answer based *only* on those chunks.
-9. **View Sources**: The UI displays the answer along with citations showing the exact filename and page number where the information was found.
+8. **View Sources**: The UI immediately displays citations showing the exact filename and page number where the information was found.
+9. **LLM Generation**: The local `llama3.1:8b` model progressively streams a concise, direct answer based *only* on those chunks to the UI.
 
 ## Known MVP Limitations
 
